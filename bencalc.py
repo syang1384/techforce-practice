@@ -115,7 +115,7 @@ def main(argv):
     except FileNotFoundError:
         print(f"bencalc: file does not exist: {argv[1]}", file=sys.stderr)
         return 1
-    sys.stdout.write("".join(line + "\n" for line in run(lines)))
+    sys.stdout.buffer.write("".join(line + "\n" for line in run(lines)).encode("latin-1"))
     return 0
 
 
