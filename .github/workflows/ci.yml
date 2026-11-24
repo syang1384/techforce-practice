@@ -13,8 +13,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pytest
+      - run: pip install -r requirements-dev.txt
       - name: Unit tests
         run: python -m pytest -v
       - name: Parity with legacy COBOL output
         run: ./check_parity.sh "python3 bencalc.py"
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t bencalc-api .
+      - name: Smoke test container
+        run: |
+          docker run -d --name api -p 8000:8000 bencalc-api
+          for i in $(seq 20); do curl -sf localhost:8000/ >/dev/null && break; sleep 1; done
+          curl -sf -X POST localhost:8000/eligibility -H 'content-type: application/json' \
+            -d '{"household_size":2,"income":"1795.33","age":60,"state":"TX"}' | tee /dev/stderr \
+            | grep -q '"benefit":"75.81"'

@@ -23,3 +23,31 @@ Your job: use Devin to turn it into a modern, tested service **that produces ide
 sudo apt-get install -y gnucobol   # or: brew install gnucobol
 cd legacy && mkdir -p out && cobc -x -o bencalc BENCALC.cbl && ./bencalc && cat out/report.txt
 ```
+
+## Run the eligibility service
+`app.py` serves the same rules as `bencalc.py` (it calls `bencalc.calculate`) for one applicant at a time.
+
+```bash
+pip install -r requirements.txt
+uvicorn app:app --reload            # http://localhost:8000
+```
+Or with Docker:
+```bash
+docker build -t bencalc-api .
+docker run --rm -p 8000:8000 bencalc-api
+```
+
+- `http://localhost:8000/` opens the caseworker form.
+- `http://localhost:8000/docs` lists the API endpoints and lets you try them.
+
+```bash
+curl -X POST localhost:8000/eligibility -H 'content-type: application/json' \
+  -d '{"household_size": 2, "income": "1795.33", "age": 60, "state": "TX", "disabled": false, "veteran": false}'
+# {"status":"ELIGIBLE","benefit":"75.81","reason":null,"reason_description":null}
+```
+Pass `income` as a string, or as a JSON number with at most 2 decimals. `benefit` is returned as a string so no
+precision is lost. Invalid input (household size outside 1–99, more than 2 decimals, a lowercase state, and so on) returns 422.
+The batch job would mark those records as R01 or treat them differently. The API returns the full benefit,
+even above 9999.99, while the batch report truncates the display (see SPEC.md §5.1).
+
+Tests: `pip install -r requirements-dev.txt && python -m pytest`

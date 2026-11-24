@@ -1,0 +1,7 @@
+.git
+.github
+legacy
+__pycache__
+.pytest_cache
+*.md
+test_*.py

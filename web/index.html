@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benefit eligibility check</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; padding: 0 1rem; color: #1b1b1b; }
+  h1 { font-size: 1.4rem; }
+  label { display: block; margin-top: .8rem; font-weight: 600; }
+  input[type=number], input[type=text] { width: 100%; padding: .4rem; font-size: 1rem; box-sizing: border-box; }
+  .check { font-weight: normal; display: inline-flex; gap: .4rem; margin-right: 1.5rem; }
+  button { margin-top: 1.2rem; padding: .6rem 1.4rem; font-size: 1rem; background: #005ea2; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+  #result { margin-top: 1.5rem; padding: 1rem; border-radius: 4px; display: none; }
+  #result.ELIGIBLE { background: #ecf3ec; border-left: 6px solid #00a91c; }
+  #result.DENIED { background: #fbe9e9; border-left: 6px solid #d54309; }
+  #result.error { background: #faf3d1; border-left: 6px solid #ffbe2e; }
+  #result .amount { font-size: 1.6rem; font-weight: 700; }
+</style>
+</head>
+<body>
+<h1>Benefit eligibility check</h1>
+<form id="f">
+  <label for="household_size">Household size</label>
+  <input id="household_size" name="household_size" type="number" min="1" max="99" required>
+  <label for="income">Monthly gross income ($)</label>
+  <input id="income" name="income" type="number" min="0" max="999999.99" step="0.01" required>
+  <label for="age">Applicant age</label>
+  <input id="age" name="age" type="number" min="0" max="999" required>
+  <label for="state">State</label>
+  <input id="state" name="state" type="text" maxlength="2" pattern="[A-Za-z]{2}" placeholder="e.g. VA" required>
+  <label>Flags</label>
+  <span class="check"><input id="disabled" name="disabled" type="checkbox"><label for="disabled" style="margin:0;font-weight:normal">Disabled</label></span>
+  <span class="check"><input id="veteran" name="veteran" type="checkbox"><label for="veteran" style="margin:0;font-weight:normal">Veteran</label></span>
+  <br><button type="submit">Check eligibility</button>
+</form>
+<div id="result" role="status" aria-live="polite"></div>
+<script>
+const f = document.getElementById("f"), out = document.getElementById("result");
+f.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    household_size: Number(f.household_size.value),
+    income: f.income.value,
+    age: Number(f.age.value),
+    state: f.state.value.trim().toUpperCase(),
+    disabled: f.disabled.checked,
+    veteran: f.veteran.checked,
+  };
+  out.style.display = "block";
+  try {
+    const r = await fetch("/eligibility", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const d = await r.json();
+    if (!r.ok) {
+      out.className = "error";
+      out.textContent = "Check the form: " + (d.detail || []).map(x => `${x.loc.at(-1)}: ${x.msg}`).join("; ");
+      return;
+    }
+    out.className = d.status;
+    out.innerHTML = "";
+    const add = (tag, text, cls) => { const el = document.createElement(tag); el.textContent = text; if (cls) el.className = cls; out.appendChild(el); };
+    add("div", d.status);
+    add("div", "$" + d.benefit + " / month", "amount");
+    if (d.reason) add("div", `${d.reason}: ${d.reason_description}`);
+  } catch (err) {
+    out.className = "error";
+    out.textContent = "Service unavailable: " + err;
+  }
+});
+</script>
+</body>
+</html>
