@@ -35,21 +35,27 @@ def evaluate(rec):
             or int(rec["hh"]) == 0:
         return "REJECT", Decimal(0), "R01"
 
-    hh = int(rec["hh"])
-    income = Decimal(rec["income"]) / 100
-    age = int(rec["age"])
+    return calculate(int(rec["hh"]), Decimal(rec["income"]) / 100, int(rec["age"]),
+                     rec["state"], rec["disabled"], rec["veteran"])
 
+
+def calculate(hh, income, age, state, disabled, veteran):
+    """Eligibility and benefit for already-validated values (SPEC.md 3.2-3.4).
+
+    hh >= 1, income is a Decimal in dollars with at most 2 decimals, state and the
+    flags are compared case-sensitively like the COBOL. Returns (status, benefit, reason).
+    """
     threshold = Decimal(1580 + 560 * (hh - 1))
-    if rec["state"] == "AK":
+    if state == "AK":
         threshold = trunc(threshold * Decimal("1.25"))
-    if rec["state"] == "HI":
+    if state == "HI":
         threshold = trunc(threshold * Decimal("1.15"))
     limit130 = trunc(threshold * Decimal("1.30"))
     limit200 = trunc(threshold * Decimal("2.00"))
 
     reason = ""
     if income > limit130:
-        if rec["disabled"] and income <= limit200:
+        if disabled and income <= limit200:
             reason = "D20"
         else:
             return "DENIED", Decimal(0), "I01"
@@ -60,7 +66,7 @@ def evaluate(rec):
         max_allot = Decimal(290 + 240 * (hh - 1))
     net = max(income - 198, Decimal(0))
     benefit = max_allot - trunc(net * Decimal("0.30"))
-    if rec["veteran"]:
+    if veteran:
         benefit += 50
     if age >= 60:
         benefit += 25
