@@ -149,7 +149,7 @@ RECORDS READ              16.00
 TOTAL BENEFITS          3393.22
 ```
 - ⚠️ The counts are printed with `.00` because they share the money picture clause. This is a cosmetic bug, but parity requires it.
-- `RECORDS READ = ELIGIBLE + DENIED + REJECTED` always holds.
+- `RECORDS READ = ELIGIBLE + DENIED + REJECTED` holds while every counter stays below 100,000. After that the counters can wrap independently (see §6.1).
 
 ## 6. Other ambiguities and latent issues ⚠️
 
