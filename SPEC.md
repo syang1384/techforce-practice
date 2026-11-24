@@ -133,7 +133,7 @@ A0000009.REJECT......0.00.R01
 ⚠️ **Benefit overflow:** The display field holds at most 9999.99. Higher benefits lose their
 leading digits, but the running total still uses the full amount. Verified: hh = 50 with
 income 0 gives max_allot 10370.00. The detail line prints ` 370.00`, while the total adds
-10370.00. This can happen whenever hh ≥ 49.
+10370.00. This happens whenever the final benefit exceeds 9999.99: hh ≥ 49, or hh = 48 with the veteran or elderly add-on (verified: a veteran household of 48 with no income prints `  20.00` for 10020.00).
 
 ### 5.2 Summary (5 lines after all details)
 | Label (cols 1–20, padded) | Value (cols 21–31, `ZZZZZZZ9.99`) |
