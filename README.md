@@ -15,7 +15,6 @@ Your job: use Devin to turn it into a modern, tested service **that produces ide
 | `legacy/data/holdout.dat` | 200 more records. Don't look at them until the end |
 | `legacy/expected/*.txt` | The exact output COBOL produces for each data file |
 | `check_parity.sh` | Diffs your new implementation against the expected output |
-| `CHALLENGE.md` | The timed brief |
 | `PROMPTS.md` | Devin prompts to try, plus tips |
 
 ## Run the legacy program (optional)
