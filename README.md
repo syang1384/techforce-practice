@@ -53,7 +53,7 @@ even above 9999.99, while the batch report truncates the display (see SPEC.md §
 Every response also has `steps`, the rules that produced the result in the order they applied, and the form shows them
 under the result.
 
-`POST /report` runs the whole batch. Send the applicant file as the body and get the report back, byte for byte what
+`POST /report` runs the whole batch (files up to 5 MB). Send the applicant file as the body and get the report back, byte for byte what
 the COBOL job writes:
 ```bash
 curl -X POST localhost:8000/report --data-binary @legacy/data/applicants.dat
@@ -71,5 +71,8 @@ curl -X POST localhost:8000/report --data-binary @legacy/data/applicants.dat
 boundaries (one cent either side of every limit) plus damaged fields, wrong lengths and arbitrary bytes, and compares
 the two reports byte for byte. A mismatch is shrunk to the fewest input lines that reproduce it. Use `--seed` to
 repeat a run and `--port "<command>"` to test another implementation.
+
+The reference is GnuCOBOL 3.1.2 (Ubuntu 22.04), which produced `legacy/expected`. GnuCOBOL 3.2 reads malformed
+files differently (SPEC.md §6.7), so with any other version the fuzzer only generates well-formed records.
 
 Install the test tools with `pip install -r requirements-dev.txt`. CI runs all four checks.

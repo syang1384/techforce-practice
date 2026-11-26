@@ -33,9 +33,15 @@ Run it live: `python3 fuzz_parity.py --files 600` takes about 20 seconds.
    get $23 (households of 1–2) or nothing (3+). A test checks every household size and state
    class, and the closest case is still 40.60 short. This is a policy question for the program owner, not something to "fix" in a port.
 
+4. **The report depends on the COBOL runtime, not only on the source.** CI caught this, not my
+   machine. GnuCOBOL 3.1.2 produced the expected reports. On GnuCOBOL 3.2 the same source splits
+   an over-long line into two records, keeps a carriage return as data (one generated record pays
+   73.00 instead of 23.00), and aborts on a tab in the ID. Well-formed files match on both. CI
+   now runs both runtimes, and SPEC.md §6.7 lists the differences as a cutover question.
+
 ## What Devin did, and what the human did
 - **Devin:** the spec, the port, the tests, the API, the form, CI, the fuzzer, the mutation
-  check, and the three findings above. Each tier is its own PR.
+  check, and the four findings above. Each tier is its own PR.
 - **Human:** set the definition of done (parity, then "prove it beyond the supplied data"),
   decided that the API rejects lowercase state codes instead of copying the COBOL quirk, and
   reviewed the PRs.

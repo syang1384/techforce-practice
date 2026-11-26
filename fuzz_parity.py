@@ -22,6 +22,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
+# The runtime that produced legacy/expected/*.txt. Other GnuCOBOL versions read malformed
+# LINE SEQUENTIAL files differently (SPEC.md 6.7), so they only judge well-formed input.
+REFERENCE_RUNTIME = "3.1.2"
+
 HH = [0, 1, 2, 3, 4, 7, 8, 9, 10, 47, 48, 49, 50, 98, 99]
 AGES = [0, 1, 18, 59, 60, 61, 100, 999]
 STATES = [b"AK", b"HI", b"TX", b"CA", b"ak", b"hi", b"Ak", b"  ", b"A ", b"KA"]
@@ -124,7 +128,10 @@ class Oracle:
         os.makedirs(os.path.join(self.dir, "data"))
         os.makedirs(os.path.join(self.dir, "out"))
         subprocess.run(["cobc", "-x", "-o", os.path.join(self.dir, "bencalc"),
-                        str(ROOT / "legacy" / "BENCALC.cbl")], check=True)
+                        str(ROOT / "legacy" / "BENCALC.cbl")], check=True, stderr=subprocess.DEVNULL)
+        banner = subprocess.run(["cobc", "--version"], capture_output=True, text=True).stdout
+        self.version = banner.splitlines()[0].split()[-1] if banner else "unknown"
+        self.is_reference = self.version.startswith(REFERENCE_RUNTIME)
 
     def run(self, data):
         inp = os.path.join(self.dir, "data", "applicants.dat")
@@ -175,18 +182,22 @@ def main():
     ap.add_argument("--files", type=int, default=200, help="input files to generate (default 200)")
     ap.add_argument("--records", type=int, default=400, help="max records per file (default 400)")
     ap.add_argument("--seed", type=int, default=None, help="random seed (default: random, printed)")
-    ap.add_argument("--profile", choices=["valid", "fields", "bytes", "all"], default="all",
+    ap.add_argument("--profile", choices=["valid", "fields", "bytes", "all"], default=None,
                     help="valid: well-formed records at rule boundaries; fields: plus damaged "
-                         "fields; bytes: plus arbitrary bytes, bad lengths and CRLF")
+                         "fields; bytes: plus arbitrary bytes, bad lengths and CRLF. Default: all "
+                         f"with GnuCOBOL {REFERENCE_RUNTIME}, valid with any other version")
     ap.add_argument("--port", default=f"{shlex.quote(sys.executable)} bencalc.py",
                     help="command for the implementation under test, run from the repo root "
                          "as: <command> <input-file> (default: python3 bencalc.py)")
     args = ap.parse_args()
     seed = args.seed if args.seed is not None else random.SystemRandom().randrange(2 ** 32)
     rng = random.Random(seed)
-    profiles = ["valid", "fields", "bytes"] if args.profile == "all" else [args.profile]
-
     oracle = Oracle(args.port)
+    profile = args.profile or ("all" if oracle.is_reference else "valid")
+    profiles = ["valid", "fields", "bytes"] if profile == "all" else [profile]
+    if not oracle.is_reference and not args.profile:
+        print(f"NOTE  GnuCOBOL {oracle.version} is not the reference runtime ({REFERENCE_RUNTIME}): "
+              "fuzzing well-formed records only")
     records = 0
     outcomes = collections.Counter()
     try:
@@ -202,8 +213,8 @@ def main():
                 print(f"  port summary:   {oracle.port(data)[-160:]!r}")
                 return 1
         for n in range(args.files):
-            profile = profiles[n % len(profiles)]
-            lines, eol, final_eol = make_file(rng, profile, args.records)
+            file_profile = profiles[n % len(profiles)]
+            lines, eol, final_eol = make_file(rng, file_profile, args.records)
             records += len(lines)
             legacy = oracle.run(join(lines, eol, final_eol))
             for detail in legacy.split(b"\n")[:-6]:
@@ -212,12 +223,13 @@ def main():
                 continue
             lines = shrink(oracle, lines, eol, final_eol)
             data = join(lines, eol, final_eol)
-            print(f"DIVERGENCE  seed={seed} file={n} profile={profile}")
+            print(f"DIVERGENCE  seed={seed} file={n} profile={file_profile}")
             print(f"  input  ({len(lines)} line(s)): {data!r}")
             print(f"  legacy: {oracle.run(data)!r}")
             print(f"  port:   {oracle.port(data)!r}")
             return 1
-        print(f"PASS  {args.files} files, {records} records, seed={seed}: port output is byte-identical to COBOL")
+        print(f"PASS  {args.files} files, {records} records, profile={profile}, seed={seed}: "
+              f"port output is byte-identical to COBOL (GnuCOBOL {oracle.version})")
         print("      legacy/expected/*.txt regenerated from COBOL and unchanged")
         print("      counter and total overflow cases also match")
         print("      legacy outcomes exercised: " + ", ".join(f"{k} {v}" for k, v in sorted(outcomes.items())))

@@ -170,6 +170,22 @@ TOTAL BENEFITS          3393.22
 5. **Reason code meanings** are inferred only (see §4). There's no data dictionary in the source.
 6. **Header comments** say this is a nutrition-assistance program. The constants (1580, 560, 290, 240, 198, 30%, $23) look like SNAP-style values but don't match any real fiscal year. Don't "update" them to current federal values.
 
+7. ⚠️ **The report depends on the COBOL runtime, not only on the source.** Everything in this
+   document is GnuCOBOL **3.1.2**, which produced `legacy/expected/*.txt`. The same source built
+   with GnuCOBOL 3.2 gives the same report for well-formed files (40-byte records, LF or CRLF
+   line ends, printable characters), but differs on malformed ones:
+
+   | Input | GnuCOBOL 3.1.2 (reference) | GnuCOBOL 3.2 |
+   |---|---|---|
+   | Line longer than 40 bytes | Extra bytes ignored | Extra bytes become a second record (R01) |
+   | CR inside a record | Dropped, later bytes shift left | Kept as data |
+   | Tab, NUL or other control byte in the ID | Echoed to the report | Job aborts, status 71, exit code 1, report cut short |
+
+   A CR inside a record can change a payment: `B0000004` followed by 15 spaces and
+   `A 0100108802001\rY` pays 23.00 on 3.1.2 and 73.00 on 3.2. Before cutover, ask the program
+   owner which runtime the production mainframe matches, and whether real files ever contain
+   such records. `fuzz_parity.py` judges malformed input only against 3.1.2.
+
 ## 7. Parity checklist for a reimplementation
 - [ ] Use decimal arithmetic, never binary floats
 - [ ] Truncate `net × 0.30` to cents, rounding toward zero
