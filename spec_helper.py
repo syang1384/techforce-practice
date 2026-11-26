@@ -15,6 +15,7 @@ The trace is written separately from bencalc.py, straight from SPEC.md, so it do
 as a second reading of the spec (test_spec_helper.py checks that both agree).
 """
 import argparse
+import os
 import re
 import sys
 from collections import Counter
@@ -433,9 +434,15 @@ def build_record(args):
         return None, f"--income {args.income} does not fit AP-INCOME 9(6)V99 (0-999999.99, at most 2 decimals)"
     if not 0 <= args.age <= 999:
         return None, f"--age {args.age} does not fit AP-AGE 9(3) (0-999)"
-    rec = (f"{args.id:<8.8}{'TEST':<15}{args.state:<2.2}{args.hh:02d}{int(inc * 100):08d}"
+    rec = (f"{as_bytes_text(args.id):<8.8}{'TEST':<15}{as_bytes_text(args.state):<2.2}{args.hh:02d}{int(inc * 100):08d}"
            f"{args.age:03d}{'Y' if args.disabled else 'N'}{'Y' if args.veteran else 'N'}")
     return rec, None
+
+
+def as_bytes_text(arg):
+    """Decode a command-line argument byte for byte, the way data files are read (latin-1),
+    so byte offsets match COBOL even when the argument has multibyte characters."""
+    return os.fsencode(arg).decode("latin-1")
 
 
 def cmd_explain(args):
@@ -449,12 +456,13 @@ def cmd_explain(args):
             return 2
         print_trace(trace(rec), " (built from options)")
         return 0
-    if len(args.target) > 8:
-        print_trace(trace(args.target), " (raw record)")
+    target = as_bytes_text(args.target)
+    if len(target) > 8:
+        print_trace(trace(target), " (raw record)")
         return 0
     path = Path(args.file)
     for n, raw in enumerate(read_records(path), 1):
-        if raw[0:8].strip() == args.target.strip():
+        if raw[0:8].strip() == target.strip():
             print_trace(trace(raw), f" ({path.name} line {n})")
             return 0
     print(f"{args.target!r} not found in {path}", file=sys.stderr)

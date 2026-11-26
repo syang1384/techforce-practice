@@ -78,3 +78,14 @@ def test_explain_rejects_values_that_do_not_fit_the_record(opts, capsys):
     assert sh.main(["explain", *opts]) == 2
     err = capsys.readouterr().err
     assert "does not fit" in err or "not a number" in err
+
+
+def test_explain_raw_record_counts_bytes_like_data_files(tmp_path, capsys):
+    raw = "N0000001MUÑOZ          TX0100000000034NN"
+    (tmp_path / "d.dat").write_bytes(raw.encode("utf-8") + b"\n")
+    assert sh.main(["explain", raw]) == 0
+    from_arg = capsys.readouterr().out
+    assert sh.main(["explain", "N0000001", "--file", str(tmp_path / "d.dat")]) == 0
+    from_file = capsys.readouterr().out
+    result = lambda out: [ln for ln in out.splitlines() if ln.startswith("Result:")]
+    assert result(from_arg) == result(from_file)
