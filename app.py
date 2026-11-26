@@ -3,8 +3,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 import bencalc
@@ -31,19 +31,36 @@ class Applicant(BaseModel):
     veteran: bool = False
 
 
+class Step(BaseModel):
+    description: str
+    amount: Decimal
+
+
 class Determination(BaseModel):
     status: Literal["ELIGIBLE", "DENIED"]
     benefit: Decimal
     reason: Optional[str]
     reason_description: Optional[str]
+    steps: list[Step] = Field(description="The rules that produced this result, in the order they applied")
 
 
 @app.post("/eligibility", response_model=Determination)
 def eligibility(a: Applicant) -> Determination:
+    trace = []
     status, benefit, reason = bencalc.calculate(
-        a.household_size, a.income, a.age, a.state, a.disabled, a.veteran)
+        a.household_size, a.income, a.age, a.state, a.disabled, a.veteran, trace)
     return Determination(status=status, benefit=benefit.quantize(bencalc.CENT),
-                         reason=reason or None, reason_description=REASONS.get(reason))
+                         reason=reason or None, reason_description=REASONS.get(reason),
+                         steps=[Step(description=d, amount=v.quantize(bencalc.CENT)) for d, v in trace])
+
+
+@app.post("/report", response_class=Response, responses={200: {"content": {"text/plain": {}}}})
+async def report(request: Request) -> Response:
+    """Run the monthly batch: the body is the fixed-width applicant file, the response is
+    the report, byte for byte what the COBOL job writes for the same file."""
+    lines = bencalc.run(bencalc.read_records(await request.body()))
+    return Response("".join(line + "\n" for line in lines).encode("latin-1"),
+                    media_type="text/plain; charset=iso-8859-1")
 
 
 @app.get("/", include_in_schema=False)

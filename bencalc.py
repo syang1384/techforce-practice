@@ -16,6 +16,18 @@ def is_numeric(field):
     return bool(field) and set(field) <= DIGITS
 
 
+def read_records(data):
+    """Split file bytes into records the way GnuCOBOL LINE SEQUENTIAL does (SPEC.md 1).
+
+    Only LF ends a record. Every CR is dropped wherever it appears, and a final
+    line without LF counts only if it has at least one other byte.
+    """
+    lines = data.replace(b"\r", b"").split(b"\n")
+    if lines[-1] == b"":
+        lines.pop()
+    return [ln.decode("latin-1") for ln in lines]
+
+
 def parse(line):
     rec = line.ljust(RECORD_LEN)[:RECORD_LEN]
     return {
@@ -39,25 +51,37 @@ def evaluate(rec):
                      rec["state"], rec["disabled"], rec["veteran"])
 
 
-def calculate(hh, income, age, state, disabled, veteran):
+def calculate(hh, income, age, state, disabled, veteran, trace=None):
     """Eligibility and benefit for already-validated values (SPEC.md 3.2-3.4).
 
     hh >= 1, income is a Decimal in dollars with at most 2 decimals, state and the
     flags are compared case-sensitively like the COBOL. Returns (status, benefit, reason).
+    If trace is a list, each rule that fires appends a (description, amount) pair to it.
     """
+    note = (lambda text, amount: trace.append((text, amount))) if trace is not None else (lambda *_: None)
+
     threshold = Decimal(1580 + 560 * (hh - 1))
+    note(f"Income threshold for a household of {hh}", threshold)
     if state == "AK":
         threshold = trunc(threshold * Decimal("1.25"))
+        note("Alaska cost-of-living adjustment (x 1.25)", threshold)
     if state == "HI":
         threshold = trunc(threshold * Decimal("1.15"))
+        note("Hawaii cost-of-living adjustment (x 1.15)", threshold)
     limit130 = trunc(threshold * Decimal("1.30"))
     limit200 = trunc(threshold * Decimal("2.00"))
+    note("Income limit (130% of threshold)", limit130)
+    note("Gross monthly income", income)
 
     reason = ""
     if income > limit130:
         if disabled and income <= limit200:
             reason = "D20"
+            note("Over 130%, but within the disability limit (200% of threshold)", limit200)
         else:
+            if disabled:
+                note("Over the disability limit (200% of threshold)", limit200)
+            note("Income is over the limit: denied", Decimal(0))
             return "DENIED", Decimal(0), "I01"
 
     if hh > 8:
@@ -65,19 +89,29 @@ def calculate(hh, income, age, state, disabled, veteran):
     else:
         max_allot = Decimal(290 + 240 * (hh - 1))
     net = max(income - 198, Decimal(0))
-    benefit = max_allot - trunc(net * Decimal("0.30"))
+    contrib = trunc(net * Decimal("0.30"))
+    benefit = max_allot - contrib
+    note(f"Maximum allotment for a household of {hh}", max_allot)
+    note("Net income (gross income minus the 198.00 deduction)", net)
+    note("Household contribution (30% of net income, cut to the cent)", -contrib)
     if veteran:
         benefit += 50
+        note("Veteran supplement", Decimal(50))
     if age >= 60:
         benefit += 25
+        note("Age 60 or over supplement", Decimal(25))
+    note("Calculated benefit", benefit)
 
     if benefit <= 0:
         if hh <= 2:
             benefit, reason = Decimal(23), "M23"
+            note("Raised to the minimum benefit (households of 1 or 2)", benefit)
         else:
+            note("Zero or less, and households of 3 or more have no minimum: denied", Decimal(0))
             return "DENIED", Decimal(0), "Z00"
     if 0 < benefit < 23 and hh <= 2:
         benefit, reason = Decimal(23), "M23"
+        note("Raised to the minimum benefit (households of 1 or 2)", benefit)
     return "ELIGIBLE", benefit, reason
 
 
@@ -116,8 +150,8 @@ def main(argv):
         print("usage: bencalc.py <input>", file=sys.stderr)
         return 2
     try:
-        with open(argv[1], encoding="latin-1", newline="") as f:
-            lines = [ln.rstrip("\r\n") for ln in f]
+        with open(argv[1], "rb") as f:
+            lines = read_records(f.read())
     except FileNotFoundError:
         print(f"bencalc: file does not exist: {argv[1]}", file=sys.stderr)
         return 1

@@ -19,6 +19,20 @@ jobs:
       - name: Parity with legacy COBOL output
         run: ./check_parity.sh "python3 bencalc.py"
 
+  cobol-oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update && sudo apt-get install -y gnucobol
+      - run: pip install -r requirements-dev.txt
+      - name: Differential fuzz against the COBOL program
+        run: python3 fuzz_parity.py --files 600
+      - name: Mutation check (every planted bug must be caught)
+        run: python3 mutation_check.py --fuzz
+
   docker:
     runs-on: ubuntu-latest
     steps:

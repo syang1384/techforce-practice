@@ -16,6 +16,10 @@
   #result.DENIED { background: #fbe9e9; border-left: 6px solid #d54309; }
   #result.error { background: #faf3d1; border-left: 6px solid #ffbe2e; }
   #result .amount { font-size: 1.6rem; font-weight: 700; }
+  #result table { margin-top: 1rem; width: 100%; border-collapse: collapse; font-size: .9rem; }
+  #result caption { text-align: left; font-weight: 600; padding-bottom: .3rem; }
+  #result td { padding: .25rem 0; border-top: 1px solid #0002; }
+  #result td:last-child { text-align: right; font-variant-numeric: tabular-nums; padding-left: 1rem; }
 </style>
 </head>
 <body>
@@ -62,6 +66,14 @@ f.addEventListener("submit", async (e) => {
     add("div", d.status);
     add("div", "$" + d.benefit + " / month", "amount");
     if (d.reason) add("div", `${d.reason}: ${d.reason_description}`);
+    const table = document.createElement("table");
+    table.createCaption().textContent = "How this was calculated";
+    for (const s of d.steps) {
+      const row = table.insertRow();
+      row.insertCell().textContent = s.description;
+      row.insertCell().textContent = s.amount;
+    }
+    out.appendChild(table);
   } catch (err) {
     out.className = "error";
     out.textContent = "Service unavailable: " + err;

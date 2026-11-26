@@ -60,6 +60,43 @@ def test_matches_batch_results_on_sample_and_holdout_data():
                 (status, benefit, reason), line
 
 
+def test_steps_explain_the_result():
+    d = post(household_size=2, income="1795.33", age=60, state="AK", veteran=True).json()
+    assert [(s["description"], s["amount"]) for s in d["steps"]] == [
+        ("Income threshold for a household of 2", "2140.00"),
+        ("Alaska cost-of-living adjustment (x 1.25)", "2675.00"),
+        ("Income limit (130% of threshold)", "3477.50"),
+        ("Gross monthly income", "1795.33"),
+        ("Maximum allotment for a household of 2", "530.00"),
+        ("Net income (gross income minus the 198.00 deduction)", "1597.33"),
+        ("Household contribution (30% of net income, cut to the cent)", "-479.19"),
+        ("Veteran supplement", "50.00"),
+        ("Age 60 or over supplement", "25.00"),
+        ("Calculated benefit", "125.81"),
+    ]
+    assert d["benefit"] == "125.81"
+
+
+@pytest.mark.parametrize("body,last_step", [
+    ({"income": "2000.00"}, "Raised to the minimum benefit (households of 1 or 2)"),
+    ({"income": "2054.01"}, "Income is over the limit: denied"),
+    ({"income": "3160.01", "disabled": True}, "Income is over the limit: denied"),
+    ({"income": "3160.00", "disabled": True}, "Raised to the minimum benefit (households of 1 or 2)"),
+    ({"household_size": 4, "income": "4238.00"},
+     "Zero or less, and households of 3 or more have no minimum: denied"),
+])
+def test_last_step_states_the_deciding_rule(body, last_step):
+    d = post(**body).json()
+    assert d["steps"][-1] == {"description": last_step, "amount": d["benefit"]}
+
+
+@pytest.mark.parametrize("data,expected", [("applicants.dat", "report.txt"), ("holdout.dat", "holdout_report.txt")])
+def test_report_endpoint_is_byte_identical_to_cobol(data, expected):
+    r = client.post("/report", content=(ROOT / "legacy" / "data" / data).read_bytes())
+    assert r.status_code == 200
+    assert r.content == (ROOT / "legacy" / "expected" / expected).read_bytes()
+
+
 def test_form_is_served():
     r = client.get("/")
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
