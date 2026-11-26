@@ -422,10 +422,20 @@ def read_records(path):
 
 
 def build_record(args):
-    inc = Decimal(args.income)
+    """Build a 40-byte record from options; returns (record, error)."""
+    try:
+        inc = Decimal(args.income)
+    except ArithmeticError:
+        return None, f"--income {args.income!r} is not a number"
+    if not 0 <= args.hh <= 99:
+        return None, f"--hh {args.hh} does not fit AP-HH-SIZE 9(2) (0-99)"
+    if not 0 <= inc <= Decimal("999999.99") or inc != inc.quantize(CENT):
+        return None, f"--income {args.income} does not fit AP-INCOME 9(6)V99 (0-999999.99, at most 2 decimals)"
+    if not 0 <= args.age <= 999:
+        return None, f"--age {args.age} does not fit AP-AGE 9(3) (0-999)"
     rec = (f"{args.id:<8.8}{'TEST':<15}{args.state:<2.2}{args.hh:02d}{int(inc * 100):08d}"
            f"{args.age:03d}{'Y' if args.disabled else 'N'}{'Y' if args.veteran else 'N'}")
-    return rec
+    return rec, None
 
 
 def cmd_explain(args):
@@ -433,7 +443,11 @@ def cmd_explain(args):
         if args.hh is None:
             print("explain needs an applicant ID, a raw 40-byte record, or --hh/--income/--age", file=sys.stderr)
             return 2
-        print_trace(trace(build_record(args)), " (built from options)")
+        rec, err = build_record(args)
+        if err:
+            print(err, file=sys.stderr)
+            return 2
+        print_trace(trace(rec), " (built from options)")
         return 0
     if len(args.target) > 8:
         print_trace(trace(args.target), " (raw record)")

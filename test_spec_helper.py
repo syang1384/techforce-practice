@@ -68,3 +68,13 @@ def test_cli(argv, capsys):
 
 def test_cli_unknown_section(capsys):
     assert sh.main(["show", "9.9"]) == 1
+
+
+@pytest.mark.parametrize("opts", [
+    ["--hh", "100"], ["--hh", "-1"], ["--hh", "2", "--income", "1.234"],
+    ["--hh", "2", "--income", "1000000"], ["--hh", "2", "--income", "abc"], ["--hh", "2", "--age", "1000"],
+])
+def test_explain_rejects_values_that_do_not_fit_the_record(opts, capsys):
+    assert sh.main(["explain", *opts]) == 2
+    err = capsys.readouterr().err
+    assert "does not fit" in err or "not a number" in err
