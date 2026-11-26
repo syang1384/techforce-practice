@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import bencalc
+import app as app_module
 from app import app
 
 client = TestClient(app)
@@ -101,3 +102,8 @@ def test_form_is_served():
     r = client.get("/")
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
     assert 'fetch("/eligibility"' in r.text
+
+
+def test_report_endpoint_rejects_oversized_file():
+    assert client.post("/report", content=b"x" * app_module.MAX_REPORT_BYTES).status_code == 200
+    assert client.post("/report", content=b"x" * (app_module.MAX_REPORT_BYTES + 1)).status_code == 413

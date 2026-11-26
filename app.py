@@ -3,7 +3,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
@@ -15,6 +16,7 @@ REASONS = {
     "I01": "Income over the eligibility limit",
     "Z00": "Calculated benefit is zero or less",
 }
+MAX_REPORT_BYTES = 5_000_000  # about 120,000 records, past the point where the COBOL counters wrap
 FORM = Path(__file__).resolve().parent / "web" / "index.html"
 
 app = FastAPI(title="BENCALC eligibility service")
@@ -54,12 +56,22 @@ def eligibility(a: Applicant) -> Determination:
                          steps=[Step(description=d, amount=v.quantize(bencalc.CENT)) for d, v in trace])
 
 
-@app.post("/report", response_class=Response, responses={200: {"content": {"text/plain": {}}}})
+def _report(data: bytes) -> bytes:
+    return "".join(line + "\n" for line in bencalc.run(bencalc.read_records(data))).encode("latin-1")
+
+
+@app.post("/report", response_class=Response,
+          responses={200: {"content": {"text/plain": {}}}, 413: {"description": "File too large"}})
 async def report(request: Request) -> Response:
     """Run the monthly batch: the body is the fixed-width applicant file, the response is
     the report, byte for byte what the COBOL job writes for the same file."""
-    lines = bencalc.run(bencalc.read_records(await request.body()))
-    return Response("".join(line + "\n" for line in lines).encode("latin-1"),
+    data = bytearray()
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > MAX_REPORT_BYTES:
+            raise HTTPException(413, f"Applicant file is larger than {MAX_REPORT_BYTES} bytes")
+    # Off the event loop, so a large batch does not hold up /eligibility.
+    return Response(await run_in_threadpool(_report, bytes(data)),
                     media_type="text/plain; charset=iso-8859-1")
 
 
