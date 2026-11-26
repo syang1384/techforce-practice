@@ -24,6 +24,23 @@ sudo apt-get install -y gnucobol   # or: brew install gnucobol
 cd legacy && mkdir -p out && cobc -x -o bencalc BENCALC.cbl && ./bencalc && cat out/report.txt
 ```
 
+## Study the spec
+`spec_helper.py` helps you read `SPEC.md` alongside `legacy/BENCALC.cbl` (standard library only).
+
+```bash
+python3 spec_helper.py toc                 # SPEC sections and the COBOL lines behind each
+python3 spec_helper.py show 3.4            # print a section
+python3 spec_helper.py cobol 3.4           # print the COBOL for that section
+python3 spec_helper.py search truncat      # find a term in both files
+python3 spec_helper.py ambiguities         # every item SPEC.md flags as ambiguous
+python3 spec_helper.py explain A0000011    # trace one record through every rule
+python3 spec_helper.py explain --hh 2 --income 1795.33 --age 60 --disabled
+python3 spec_helper.py walk                # every record, plus which rules and traps the file exercises
+```
+`explain` and `walk` take `--file` to read another data file. Each trace step cites the SPEC section and
+COBOL line, and ends with notes on traps the record hits (truncation, M23 overwriting D20, overflow, and so on).
+The trace is written separately from `bencalc.py`, and `test_spec_helper.py` checks that the two agree.
+
 ## Run the eligibility service
 `app.py` serves the same rules as `bencalc.py` (it calls `bencalc.calculate`) for one applicant at a time.
 
