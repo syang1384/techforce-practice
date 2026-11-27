@@ -41,6 +41,7 @@ REJECT_R01 = ("REJECT", Decimal(0), "R01")
     {"hh_raw": "0A"}, {"hh_raw": " 1"}, {"hh_raw": "00"},
     {"income_raw": "0000 100"}, {"income_raw": "+0001000"}, {"income_raw": "        "},
     {"age_raw": " 60"}, {"age_raw": "-01"}, {"age_raw": "abc"},
+    {"income_raw": "0001.000"}, {"income_raw": "1000,000"}, {"hh_raw": "\x001"},
 ])
 def test_invalid_fields_reject_r01(field):
     assert ev(**field) == REJECT_R01
@@ -160,6 +161,10 @@ def test_veteran_and_age_60_add_ons(age, veteran, benefit):
     (3, "2764.64", elig("0.01")),           # hh >= 3 has no minimum
     (3, "2764.67", DENIED_Z00),             # benefit exactly 0.00
     (3, "3000.00", DENIED_Z00),
+    (1, "1164.64", elig("23.00", "M23")),   # benefit 0.01 -> raised to 23
+    (2, "1931.34", elig("23.00", "M23")),   # hh 2, benefit 10.00 -> raised to 23
+    (2, "1888.00", elig("23.00")),          # hh 2, benefit exactly 23.00, no M23
+    (2, "2782.00", elig("23.00", "M23")),   # hh 2, negative benefit
 ])
 def test_minimum_benefit_rules(hh, income, expected):
     assert ev(hh=hh, income=income) == expected
@@ -221,6 +226,63 @@ def test_cli_preserves_non_ascii_bytes(tmp_path):
 
 
 def test_cli_missing_file_exits_1(tmp_path):
-    proc = subprocess.run([sys.executable, str(ROOT / "bencalc.py"), str(tmp_path / "nope")],
+    missing = tmp_path / "nope"
+    proc = subprocess.run([sys.executable, str(ROOT / "bencalc.py"), str(missing)],
                           capture_output=True, text=True)
-    assert proc.returncode == 1 and "does not exist" in proc.stderr
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert proc.stderr == f"bencalc: file does not exist: {missing}\n"
+
+
+def test_cli_without_input_file_exits_2():
+    proc = subprocess.run([sys.executable, str(ROOT / "bencalc.py")], capture_output=True, text=True)
+    assert proc.returncode == 2 and proc.stderr.startswith("usage:")
+
+
+# --- 1 Record splitting (LINE SEQUENTIAL) -----------------------------------
+# Expected values captured from the compiled legacy/BENCALC.cbl.
+
+REC = line().encode()
+
+
+@pytest.mark.parametrize("data,expected", [
+    (b"", []),
+    (REC + b"\n", [REC]),
+    (REC, [REC]),                                    # last line without LF still counts
+    (REC + b"\r\n", [REC]),                          # CRLF
+    (REC[:30] + b"\r" + REC[30:] + b"\n", [REC]),    # CR inside a record is dropped, not a line break
+    (REC + b"\r\r\n", [REC]),
+    (b"\n\n", [b"", b""]),                           # blank lines are records (rejected later)
+    (b"\r", []),                                     # a lone CR is not a record
+    (REC + b"\n\r", [REC]),
+    (b"\r\n", [b""]),
+])
+def test_read_records_matches_cobol_line_sequential(data, expected):
+    assert bencalc.read_records(data) == [e.decode() for e in expected]
+
+
+def test_cli_stray_carriage_return_does_not_split_the_record(tmp_path):
+    # Found by fuzz_parity.py: the port used to report two REJECT lines here.
+    data = tmp_path / "in.dat"
+    data.write_bytes(REC[:30] + b"\r" + REC[30:] + b"\n")
+    out = subprocess.run([sys.executable, str(ROOT / "bencalc.py"), str(data)],
+                         capture_output=True, check=True).stdout
+    assert out.splitlines()[:2] == [b"T0000001 ELIGIBLE  290.00", b"RECORDS READ               1.00"]
+
+
+# --- 6.1 Counter and total overflow -----------------------------------------
+# Expected values captured from the compiled legacy/BENCALC.cbl.
+
+def test_counters_wrap_at_100000_records():
+    out = bencalc.run([line()] * 100001 + [line(income="99999.99")] * 100005 + [""] * 100002)
+    assert out[-5:] == [
+        "RECORDS READ               8.00",
+        "ELIGIBLE                   1.00",
+        "DENIED                     5.00",
+        "REJECTED                   2.00",
+        "TOTAL BENEFITS      29000290.00",
+    ]
+
+
+def test_total_wraps_at_100_million():
+    out = bencalc.run([line(hh=47)] * 10300)    # 10300 x 9770.00 = 100,631,000.00
+    assert out[-1] == "TOTAL BENEFITS        631000.00"

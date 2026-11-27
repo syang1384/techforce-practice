@@ -33,6 +33,9 @@ look like bugs. Ask the program owner before "fixing" any of them, because a fix
 Parsing rules (verified):
 - **Short lines** are space-padded to 40 bytes. A missing numeric field becomes non-numeric, so the record is rejected (R01).
 - **Long lines:** bytes after position 40 are silently ignored.
+- **Only LF ends a record.** ⚠️ Every CR byte is dropped wherever it appears, not only before LF. A CR in the middle of a record shifts the bytes after it one position left. It does not start a new record. A file from Windows (CRLF) therefore reads the same as an LF file.
+- A last line with no LF is still a record, unless it is empty after CRs are dropped. A blank line is a record (it is rejected, R01).
+- All other bytes, including NUL, tab and bytes above 0x7F, are kept as data.
 - **Numeric fields** must be digits only. A leading space (` 3`), a sign (`-0100000`), or letters (`X3`) all make the field NOT NUMERIC, so the record is rejected (R01).
 - **Flags and state are case-sensitive.** Only uppercase `Y`, `AK` and `HI` count. Any other value (`y`, `N`, a space, `ak`) means no or not applicable. ⚠️ These fields are not validated, so `y` is silently treated as `N`.
 
@@ -101,11 +104,18 @@ The code never defines these names. The meanings below are inferred from where e
 | Code | Status | Meaning |
 |---|---|---|
 | *(blank)* | ELIGIBLE | Standard eligibility (income ≤ 130%) |
-| `D20` | ELIGIBLE | Eligible through the disability exception (130% < income ≤ 200%) |
+| `D20` | ELIGIBLE | Eligible through the disability exception (130% < income ≤ 200%). ⚠️ **Never printed**, see below |
 | `M23` | ELIGIBLE | Benefit raised to the $23 minimum (hh ≤ 2) |
 | `I01` | DENIED | Income over the limit |
 | `Z00` | DENIED | Calculated benefit ≤ 0 and hh ≥ 3 |
 | `R01` | REJECT | Invalid record (non-numeric field or hh = 0) |
+
+⚠️ **D20 can never appear on a report.** Above 130% the household contribution is always larger
+than the maximum allotment plus both add-ons (the closest case, a household of 8, is still 40.60
+short). So every applicant on the disability path ends at M23 (households of 1–2, paid $23) or
+Z00 (households of 3+, paid nothing). Checked for every household size 1–99 and state class by
+`test_d20_band_never_yields_positive_benefit`. The exception looks like it was meant to do more
+than this. Ask the program owner.
 
 ## 5. Report format
 
@@ -153,12 +163,28 @@ TOTAL BENEFITS          3393.22
 
 ## 6. Other ambiguities and latent issues ⚠️
 
-1. **Counter overflow:** the counters are `9(5)` with no `ON SIZE ERROR`. Behavior above 99,999 records is untested and undefined for parity purposes. The total is `9(8)V99` and would overflow above 99,999,999.99.
+1. **Counter overflow:** the counters are `9(5)` and the total is `9(8)V99`, with no `ON SIZE ERROR`. Verified: each one silently keeps only its low-order digits. A file of 100,001 eligible records prints `ELIGIBLE 1.00`, and a total of 100,631,000.00 prints `631000.00`. There is no warning and the exit code is 0. Parity requires the same wrap.
 2. **`WS-STATUS` is never reset** between records. Every current path sets it, so no stale value leaks today, but a future edit could expose this.
 3. **No state validation:** any 2 characters are accepted, including blanks and lowercase.
 4. **Age is not range-checked:** `000` and `999` are accepted, and age ≥ 60 gets the elderly add-on.
 5. **Reason code meanings** are inferred only (see §4). There's no data dictionary in the source.
 6. **Header comments** say this is a nutrition-assistance program. The constants (1580, 560, 290, 240, 198, 30%, $23) look like SNAP-style values but don't match any real fiscal year. Don't "update" them to current federal values.
+
+7. ⚠️ **The report depends on the COBOL runtime, not only on the source.** Everything in this
+   document is GnuCOBOL **3.1.2**, which produced `legacy/expected/*.txt`. The same source built
+   with GnuCOBOL 3.2 gives the same report for well-formed files (40-byte records, LF or CRLF
+   line ends, printable characters), but differs on malformed ones:
+
+   | Input | GnuCOBOL 3.1.2 (reference) | GnuCOBOL 3.2 |
+   |---|---|---|
+   | Line longer than 40 bytes | Extra bytes ignored | Extra bytes become a second record (R01) |
+   | CR inside a record | Dropped, later bytes shift left | Kept as data |
+   | Tab, NUL or other control byte in the ID | Echoed to the report | Job aborts, status 71, exit code 1, report cut short |
+
+   A CR inside a record can change a payment: `B0000004` followed by 15 spaces and
+   `A 0100108802001\rY` pays 23.00 on 3.1.2 and 73.00 on 3.2. Before cutover, ask the program
+   owner which runtime the production mainframe matches, and whether real files ever contain
+   such records. `fuzz_parity.py` judges malformed input only against 3.1.2.
 
 ## 7. Parity checklist for a reimplementation
 - [ ] Use decimal arithmetic, never binary floats
@@ -168,6 +194,8 @@ TOTAL BENEFITS          3393.22
 - [ ] Apply veteran and elderly add-ons before the minimum logic
 - [ ] Let M23 overwrite D20
 - [ ] Parse fixed-width fields by byte offset, pad short lines, ignore extra bytes
+- [ ] Split records on LF only and drop every CR
+- [ ] Wrap the counters at 100,000 and the total at 100,000,000
 - [ ] Use strict digit-only numeric validation (spaces and signs are rejected)
 - [ ] Match case-sensitive `Y`, `AK`, `HI`
 - [ ] Format `ZZZ9.99` with leading-digit truncation above 9999.99
