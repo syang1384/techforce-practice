@@ -41,6 +41,8 @@
 <div id="result" role="status" aria-live="polite"></div>
 <script>
 const f = document.getElementById("f"), out = document.getElementById("result");
+// Any edit makes the shown result stale, including edits the browser's validation then blocks.
+f.addEventListener("input", () => { out.style.display = "none"; out.className = ""; out.innerHTML = ""; });
 f.addEventListener("submit", async (e) => {
   e.preventDefault();
   const body = {
